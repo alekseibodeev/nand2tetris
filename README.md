@@ -6,7 +6,7 @@ Build a modern computer from scratch following *The Elements of Computer Systems
 
 | Project                          | Status                               |
 |----------------------------------|--------------------------------------|
-| 01: Boolean Logic                | :x: Not Started                      |
+| 01: Boolean Logic                | :white_check_mark: Completed         |
 | 02: Boolean Arithmetic           | :x: Not Started                      |
 | 03: Memory                       | :x: Not Started                      |
 | 04: Machine Language             | :x: Not Started                      |
