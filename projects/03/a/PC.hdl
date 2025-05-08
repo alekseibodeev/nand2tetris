@@ -14,5 +14,24 @@ CHIP PC {
     OUT out[16];
     
     PARTS:
-    //// Replace this comment with your code.
+    // Increment feedback loop value
+    Inc16(in=feedback, out=incValue);
+    // Apply reset -> load -> inc
+    Not(in=reset, out=notReset);
+    And(a=load, b=notReset, out=isLoad);
+    Not(in=load, out=notLoad);
+    And(a=notReset, b=notLoad, out=notLoadAndNotReset);
+    And(a=inc, b=notLoadAndNotReset, out=isInc);
+    Mux4Way16(
+      a=false,
+      b=in,
+      c=incValue,
+      sel[0]=isLoad,
+      sel[1]=isInc,
+      out=inRegister
+    );
+    // Compute Register's load bit
+    Or(a=inc, b=load, out=incOrLoad);
+    Or(a=incOrLoad, b=reset, out=incOrLoadOrReset);
+    Register(in=inRegister, load=incOrLoadOrReset, out=out, out=feedback);
 }
