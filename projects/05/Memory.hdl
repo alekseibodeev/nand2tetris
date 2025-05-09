@@ -25,5 +25,41 @@ CHIP Memory {
     OUT out[16];
 
     PARTS:
-	//// Replace this comment with your code.
+    // 0x6000 -> 0110 0000 0000 0000
+    // 0x5fff -> 0101 1111 1111 1111
+    // 0x4000 -> 0100 0000 0000 0000
+    // Determine wheather the address is RAM
+    Not(in=address[14], out=isRAM);
+    // Determine wheather the address is Screen
+    Not(in=address[13], out=notBit13);
+    And(a=address[14], b=notBit13, out=isScreen);
+    // Determine wheather the adress is Keyboard
+    Or8Way(in=address[0..7], out=bitsFrom0To7);
+    Not(in=bitsFrom0To7, out=notBitsFrom0To7);
+    Or8Way(in[0..4]=address[8..12], out=bitsFrom8To12);
+    Not(in=bitsFrom8To12, out=notBitsFrom8To12);
+    And(a=notBitsFrom0To7, b=notBitsFrom8To12, out=notBitsFrom0To12);
+    And(a=address[14], b=address[13], out=bit13AndBit14);
+    And(a=bit13AndBit14, b=notBitsFrom0To12, out=isKeyboard);
+    // RAM
+    And(a=isRAM, b=load, out=loadRAM);
+    RAM16K(in=in, address[0..13]=address[0..13], load=loadRAM, out=outRAM);
+    // Screen
+    And(a=isScreen, b=load, out=loadScreen);
+    Screen(in=in, address[0..12]=address[0..12], load=loadScreen, out=outScreen);
+    // Keyboard
+    Keyboard(out=outKeyboard);
+    // Produce selectors
+    Or(a=isRAM, b=isScreen, out=sel0);
+    Or(a=isRAM, b=isKeyboard, out=sel1);
+    // Pick output
+    Mux4Way16(
+      a=false,
+      b=outScreen,
+      c=outKeyboard,
+      d=outRAM,
+      sel[0]=sel0,
+      sel[1]=sel1,
+      out=out
+    );
 }

@@ -32,5 +32,90 @@ CHIP CPU {
         pc[15];          // address of next instruction
 
     PARTS:
-	//// Replace this comment with your code.
+    // instruction as i:
+    // [15]: if (i[15] == 0) A else C
+    // [14..13]: ignored
+    // [12..6]: comp
+    // [5]: dest A
+    // [4]: dest D
+    // [3]: dest M
+    // [2..0] jump
+    // Determine Register A input
+    Mux16(a=instruction, b=outALU, sel=instruction[15], out=inRegisterA);
+    // Determine Register A load
+    Not(in=instruction[15], out=isInstructionA);
+    Or(a=isInstructionA, b=instruction[5], out=loadRegisterA);
+    // Register A
+    ARegister(in=inRegisterA, load=loadRegisterA, out=outRegisterA, out[0..14]=addressM);
+    // Determine Register D load
+    And(a=instruction[15], b=instruction[4], out=loadRegisterD);
+    // Register D
+    DRegister(in=outALU, load=loadRegisterD, out=outRegisterD);
+    // Pick Register A out or inM as input for ALU
+    Mux16(a=outRegisterA, b=inM, sel=instruction[12], out=outRegisterAOrInM);
+    // ALU
+    ALU(
+      x=outRegisterD,
+      y=outRegisterAOrInM,
+      zx=instruction[11],
+      nx=instruction[10],
+      zy=instruction[9],
+      ny=instruction[8],
+      f=instruction[7],
+      no=instruction[6],
+      out=outM,
+      out=outALU,
+      zr=zr,
+      ng=ng
+    );
+    // Determine writeM
+    And(a=instruction[15], b=instruction[3], out=writeM);
+    // Determine ProgramCounter load
+    Not(in=instruction[0], out=notJump0);
+    Not(in=instruction[1], out=notJump1);
+    Not(in=instruction[2], out=notJump2);
+    Not(in=zr, out=notZr);
+    Not(in=ng, out=notNg);
+    // JGT
+    And(a=notJump1, b=notJump2, out=notJump1AndNotJump2);
+    And(a=instruction[0], b=notJump1AndNotJump2, out=jump0AndNotJump1AndNotJump2);
+    And(a=notZr, b=notNg, out=notZrAndNotNg);
+    And(a=jump0AndNotJump1AndNotJump2, b=notZrAndNotNg, out=isJGT);
+    // JEQ
+    And(a=notJump0, b=notJump2, out=notJump0AndNotJump2);
+    And(a=instruction[1], b=notJump0AndNotJump2, out=notJump0AndJump1AndNotJump2);
+    And(a=notJump0AndJump1AndNotJump2, b=zr, out=isJEQ);
+    // JGE
+    And(a=instruction[0], b=instruction[1], out=jump0AndJump1);
+    And(a=jump0AndJump1, b=notJump2, out=jump0AndJump1AndNotJump2);
+    And(a=jump0AndJump1AndNotJump2, b=notNg, out=isJGE);
+    // JLT
+    And(a=notJump0, b=notJump1, out=notJump0AndNotJump1);
+    And(a=instruction[2], b=notJump0AndNotJump1, out=notJump0AndNotJump1AndJump2);
+    And(a=notJump0AndNotJump1AndJump2, b=ng, out=isJLT);
+    // JNE
+    And(a=instruction[0], b=instruction[2], out=jump0AndJump2);
+    And(a=jump0AndJump2, b=notJump1, out=jump0AndNotJump1AndJump2);
+    And(a=jump0AndNotJump1AndJump2, b=notZr, out=isJNE);
+    // JLE
+    And(a=instruction[1], b=instruction[2], out=jump1AndJump2);
+    And(a=notJump0, b=jump1AndJump2, out=notJump0AndJump1AndJump2);
+    Or(a=zr, b=ng, out=zrOrNg);
+    And(a=notJump0AndJump1AndJump2, b=zrOrNg, out=isJLE);
+    // JMP
+    And(a=instruction[0], b=jump1AndJump2, out=isJMP);
+    // Accumulate jump instructions
+    Or8Way(
+      in[0]=isJGT,
+      in[1]=isJEQ,
+      in[2]=isJGE,
+      in[3]=isJLT,
+      in[4]=isJNE,
+      in[5]=isJLE,
+      in[6]=isJMP,
+      out=isJump
+    );
+    And(a=instruction[15], b=isJump, out=loadPC);
+    // PC
+    PC(in=outRegisterA, load=loadPC, inc=true, reset=reset, out[0..14]=pc);
 }
