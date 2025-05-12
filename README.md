@@ -12,7 +12,7 @@ Build a modern computer from scratch following *The Elements of Computer Systems
 | 04: Machine Language             | :white_check_mark: Completed         |
 | 05: Computer Architecture        | :white_check_mark: Completed         |
 | 06: Assembler                    | :white_check_mark: Completed         |
-| 07: VM I: Stack Arithmetic       | :x: Not Started                      |
+| 07: VM I: Stack Arithmetic       | :white_check_mark: Completed         |
 | 08: VM II: Program Control       | :x: Not Started                      |
 | 09: High-Level Language          | :x: Not Started                      |
 | 10: Compiler I: Syntax Analysis  | :x: Not Started                      |
