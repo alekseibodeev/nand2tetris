@@ -1,96 +1,95 @@
 #!/usr/bin/env python
 
-import os
-import sys
-from typing import TextIO
-import parser
-import code_translator as code
-from table import init_table
-from utils import exit_with_error
+import argparse
+from typing import Self
+from pathlib import Path
+from parser import Parser
+from codewriter import CodeWriter
+from table import Table
+
+class HackAssembler:
+    def __init__(self: Self, path: Path):
+        self._input_path = path.resolve()
+        self._output_path = self._get_output_path()
+        self._input_stream = open(self._input_path)
+        self._output_stream = open(self._output_path, "w")
+        self._parser = Parser(self._input_stream)
+        self._code = CodeWriter(self._output_stream)
+        self._table = Table()
+
+    def assemble(self: Self) -> None:
+        self._mark_labels()
+        self._parser.reset()
+        self._assemble()
+        self._close_streams()
+
+    def _mark_labels(self: Self) -> None:
+        line_number = 0
+        parser = self._parser
+
+        while parser.has_more_lines():
+            parser.advance()
+
+            if not parser.is_label():
+                line_number += 1
+            else:
+                symbol = parser.get_symbol()
+                self._table.add_entry(symbol, line_number)
+
+    def _assemble(self: Self) -> None:
+        parser = self._parser
+        code = self._code
+        table = self._table
+
+        while parser.has_more_lines():
+            parser.advance()
+
+            if parser.is_label():
+                continue
+            if parser.is_address():
+                symbol = parser.get_symbol()
+                is_num = symbol.isnumeric()
+
+                if not is_num and not table.contains(symbol):
+                    table.add_entry(symbol)
+
+                address = int(symbol) if is_num else table.get_address(symbol)
+                code.write_address(address)
+            else:
+                dest = parser.get_dest()
+                comp = parser.get_comp()
+                jump = parser.get_jump()
+                code.write_computation(dest, comp, jump)
+
+    def _close_streams(self: Self) -> None:
+        self._input_stream.close()
+        self._output_stream.close()
+
+    def _get_output_path(self: Self) -> Path:
+        return self._input_path.with_suffix(".hack")
+
+def validate_path(path_str: str) -> Path:
+    path_suffix = ".asm"
+    path = Path(path_str)
+
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"file '{path}' does not exist")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"'{path}' is not a file")
+    if path.suffix != path_suffix:
+        raise argparse.ArgumentTypeError(
+            f"file extension must be '{path_suffix}', but got '{path.suffix}'"
+        )
+
+    return path
 
 def main():
-    if len(sys.argv) != 2:
-        exit_with_error("error: Wrong number of arguments")
-
-    file_name = sys.argv[1]
-
-    if not has_asm_extension(file_name):
-        exit_with_error("error: Wrong file extension")
-
-    in_file_path = os.path.abspath(file_name)
-
-    if not os.path.exists(in_file_path):
-        exit_with_error("error: File does not exist")
-
-    out_file_path = asm_to_hack(in_file_path)
-    symbol_table = init_table()
-
-    with open(in_file_path) as reader, open(out_file_path, "w") as writer:
-        populate_table_with_labels(reader, symbol_table)
-        reset_stream(reader)
-        translate_to_binary(reader, writer, symbol_table)
-
-def populate_table_with_labels(reader: TextIO, table: dict[str, int]) -> None:
-    """Read input stream and populate symbol's table with label addresses"""
-    line_number = 0
-
-    for line in reader:
-        line = line.strip()
-        if line == "" or parser.is_comment(line):
-            continue
-        if not parser.is_label(line):
-            line_number += 1
-        else:
-            symbol = parser.get_symbol_from_label(line)
-            table[symbol] = line_number
-
-def translate_to_binary(reader: TextIO, writer: TextIO, table: dict[str, int]) -> None:
-    """Translate each line in reader to binary command and write to writer."""
-    symbol_address = 16
-
-    for line in reader:
-        line = parser.remove_spaces(line.strip())
-        if line == "" or parser.is_comment(line) or parser.is_label(line):
-            continue
-        if parser.is_address(line):
-            symbol = parser.get_symbol_from_address(line)
-            is_numeric = symbol.isnumeric()
-
-            if not is_numeric and symbol not in table:
-                table[symbol] = symbol_address
-                symbol_address += 1
-
-            address = int(symbol) if is_numeric else table[symbol]
-            writer.write(code.address_to_bin(address) + "\n")
-        else:
-            dest = parser.get_dest(line)
-            comp = parser.get_comp(line)
-            jump = parser.get_jump(line)
-            dest_bin = code.dest_to_bin(dest)
-            comp_bin = code.comp_to_bin(comp)
-            jump_bin = code.jump_to_bin(jump)
-            writer.write(f"111{comp_bin}{dest_bin}{jump_bin}\n")
-
-def reset_stream(stream: TextIO) -> None:
-    stream.seek(0)
-
-def has_asm_extension(file_name: str) -> bool:
-    return file_name.endswith(".asm")
-
-def remove_file_extension(file_path: str) -> str:
-    """Remove file extension.
-
-    Assume file_path always has extension specified
-    """
-    i = file_path.rfind(".")
-    return file_path[:i]
-
-def asm_to_hack(file_path: str) -> str:
-    """Convert file extension from asm to hack
-
-    Assume file_path has .asm extension
-    """
-    return remove_file_extension(file_path) + ".hack"
+    parser = argparse.ArgumentParser(
+        description="Translate Hack Assembly code to Binary instructions."
+    )
+    parser.add_argument("path", type=validate_path, help="Path to .asm file")
+    args = parser.parse_args()
+    HackAssembler(args.path).assemble()
 
 if __name__ == "__main__":
     main()
