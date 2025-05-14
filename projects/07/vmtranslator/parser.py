@@ -1,32 +1,50 @@
-def is_comment(line: str) -> bool:
-    return line.startswith("//")
+from typing import Self, TextIO, Iterator
 
-def is_empty(line: str) -> bool:
-    return line == ""
+class Parser:
+    def __init__(self: Self, stream: TextIO) -> None:
+        self._stream = stream
+        self._iterator = self._get_iterator()
+        self._args = []
 
-def get_args(line: str) -> list[str]:
-    return line.split(" ")
+    def has_more_lines(self: Self) -> bool:
+        try:
+            line = next(self._iterator)
+            self._args = line.split(" ")
+            return True
+        except StopIteration:
+            return False
 
-def get_op(args: list[str]) -> str:
-    return args[0]
+    def is_pushpop(self: Self) -> bool:
+        return self.get_op() in {"push", "pop"}
 
-def get_arg1(args: list[str]) -> str:
-    return args[1]
+    def is_arithmetic(self: Self) -> bool:
+        return self.get_op() in {"add" , "sub", "neg",
+                                 "and", "or", "not",
+                                 "eq", "lt", "gt"}
 
-def get_arg2(args: list[str]) -> int:
-    return int(args[2])
+    def get_op(self: Self) -> str:
+        return self._args[0]
 
-def is_binary_arithmetic(op: str) -> bool:
-    return op in ["add", "sub", "and", "or"]
+    def get_arg1(self: Self) -> str:
+        return self._args[1]
 
-def is_unary_arithmetic(op: str) -> bool:
-    return op in ["neg", "not"]
+    def get_arg2(self: Self) -> int:
+        return int(self._args[2])
 
-def is_comparison(op: str) -> bool:
-    return op in ["eq", "lt", "gt"]
+    def _get_iterator(self: Self) -> Iterator[str]:
+        for line in self._stream:
+            cleaned = Parser._clean_line(line)
+            if not Parser._is_empty(cleaned) and not Parser._is_comment(cleaned):
+                yield cleaned
 
-def is_push(op: str) -> bool:
-    return op == "push"
+    @staticmethod
+    def _is_empty(line: str) -> bool:
+        return line == ""
 
-def is_pop(op: str) -> bool:
-    return op == "pop"
+    @staticmethod
+    def _is_comment(line: str) -> bool:
+        return line.startswith("//")
+
+    @staticmethod
+    def _clean_line(line: str) -> str:
+        return line.strip()

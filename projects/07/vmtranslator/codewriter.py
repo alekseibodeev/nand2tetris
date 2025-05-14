@@ -1,187 +1,140 @@
-SEGMENTS = {
-    "local": "LCL",
-    "argument": "ARG",
-    "this": "THIS",
-    "that": "THAT"
-}
+from typing import Self, TextIO
 
-def write_push(seg: str, i: int, file: str) -> str:
-    stack = []
+class CodeWriter:
+    SEGMENT_MAP = {
+        "local": "LCL",
+        "argument": "ARG",
+        "this": "THIS",
+        "that": "THAT",
+        "pointer": 3,
+        "temp": 5
+    }
 
-    # setup D Register with value to push
-    if seg in ["local", "argument", "this", "that"]:
-        stack.append(f"@{i}")
-        stack.append("D=A")
-        stack.append(f"@{SEGMENTS[seg]}")
-        stack.append("A=M")
-        stack.append("A=D+A")
-        stack.append("D=M")
-    elif seg == "pointer":
-        if i == 0:
-            stack.append("@THIS")
-            stack.append("D=M")
+    def __init__(self: Self, stream: TextIO, file_name: str) -> None:
+        self._stream = stream
+        self._file_name = file_name
+        self._label_index = 0
+
+    def write_pushpop(self: Self, op: str, segment: str, index: int) -> None:
+        if op == "push":
+            self._write_push(segment, index)
         else:
-            stack.append("@THAT")
-            stack.append("D=M")
-    elif seg == "temp":
-        stack.append(f"@{5 + i}")
-        stack.append("D=M")
-    elif seg == "constant":
-        stack.append(f"@{i}")
-        stack.append("D=A")
-    else:
-        stack.append(f"@{file}.{i}")
-        stack.append("D=M")
+            self._write_pop(segment, index)
 
-    # push value onto stack
-    stack.append("@SP")
-    stack.append("A=M")
-    stack.append("M=D")
-    stack.append("@SP")
-    stack.append("M=M+1\n")
-
-    return "\n".join(stack)
-
-def write_pop(seg: str, i: int, file: str) -> str:
-    stack = []
-
-    # setup destination address
-    if seg in ["local", "argument", "this", "that"]:
-        stack.append(f"@{i}")
-        stack.append("D=A")
-        stack.append(f"@{SEGMENTS[seg]}")
-        stack.append("A=M")
-        stack.append("A=D+A")
-    elif seg == "pointer":
-        if i == 0:
-            stack.append("@THIS")
+    def write_arithmetic(self: Self, op: str) -> None:
+        if op in {"add", "sub", "and", "or"}:
+            self._write_binary_arithmetic(op)
+        elif op in {"neg", "not"}:
+            self._write_unary_arithmetic(op)
         else:
-            stack.append("@THAT")
-    elif seg == "temp":
-        stack.append(f"@{5 + i}")
-    else:
-        stack.append(f"@{file}.{i}")
+            self._write_comparison(op)
 
-    # store destination address in R13
-    stack.append("D=A")
-    stack.append("@13")
-    stack.append("M=D")
+    def write_end(self: Self) -> None:
+        self._write_lines(
+            "(END)",
+            "@END",
+            "0;JMP"
+        )
 
-    # pop value from stack
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
-    stack.append("D=M")
+    def _write_push(self: Self, segment: str, index: int) -> None:
+        if segment == "constant":
+            self._write_lines(
+                f"@{index}",
+                "D=A"
+            )
+        elif segment == "static":
+            self._write_lines(
+                f"@{self._file_name}.{index}",
+                "D=M"
+            )
+        else:
+            self._resolve_address(segment, index)
+            self._write_lines("D=M")
 
-    # write popped value to destination
-    stack.append("@13")
-    stack.append("A=M")
-    stack.append("M=D\n")
+        self._write_lines(
+            "@SP",
+            "A=M",
+            "M=D",
+            "@SP",
+            "M=M+1"
+        )
 
-    return "\n".join(stack)
+    def _write_pop(self: Self, segment: str, index: int) -> None:
+        if segment == "static":
+            self._write_lines(f"@{self._file_name}.{index}")
+        else:
+            self._resolve_address(segment, index)
 
-def write_binary_arithmetic(op: str) -> str:
-    stack = []
+        self._write_lines(
+            "D=A",
+            "@R13",
+            "M=D",
+            "@SP",
+            "AM=M-1",
+            "D=M",
+            "@R13",
+            "A=M",
+            "M=D"
+        )
 
-    # pop y
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
-    stack.append("D=M")
+    def _write_binary_arithmetic(self: Self, op: str) -> None:
+        ops = {"add": "+", "sub": "-", "and": "&", "or": "|"}
+        self._write_lines(
+            "@SP",
+            "AM=M-1",
+            "D=M",
+            "A=A-1",
+            f"M=M{ops[op]}D"
+        )
 
-    # pop x
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
-    
-    # compute x op y
-    if op == "add":
-        stack.append("D=D+M")
-    elif op == "sub":
-        stack.append("D=M-D")
-    elif op == "and":
-        stack.append("D=D&M")
-    else:
-        stack.append("D=D|M")
+    def _write_unary_arithmetic(self: Self, op: str) -> None:
+        ops = {"neg": "-", "not": "!"}
+        self._write_lines(
+            "@SP",
+            "A=M-1",
+            f"M={ops[op]}M"
+        )
 
-    # push to stack
-    stack.append("@SP")
-    stack.append("A=M")
-    stack.append("M=D")
-    stack.append("@SP")
-    stack.append("M=M+1\n")
+    def _write_comparison(self: Self, op: str) -> None:
+        jump = {"eq": "JEQ", "lt": "JLT", "gt": "JGT"}[op]
+        label = f"COMP_{self._label_index}"
+        self._label_index += 1
 
-    return "\n".join(stack)
+        self._write_lines(
+            "@SP",
+            "AM=M-1",
+            "D=M",
+            "A=A-1",
+            "D=M-D",
+            f"@{label}_TRUE",
+            f"D;{jump}",
+            "@SP",
+            "A=M-1",
+            "M=0",
+            f"@{label}_END",
+            "0;JMP",
+            f"({label}_TRUE)",
+            "@SP",
+            "A=M-1",
+            "M=-1",
+            f"({label}_END)"
+        )
 
-def write_unary_arithmetic(op: str) -> str:
-    stack = []
+    def _resolve_address(self: Self, segment: str, index: int) -> None:
+        base = self.SEGMENT_MAP[segment]
+        if isinstance(base, int):
+            self._write_lines(f"@{base + index}")
+        else:
+            self._write_lines(
+                f"@{base}",
+                "D=M",
+                f"@{index}",
+                "A=D+A"
+            )
 
-    # pop y
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
+    def _write_lines(self: Self, *lines: str) -> None:
+        for line in lines:
+            self._write_line(line)
 
-    # compute op y
-    if op == "neg":
-        stack.append("M=-M")
-    else:
-        stack.append("M=!M")
-
-    # push
-    stack.append("@SP")
-    stack.append("M=M+1\n")
-
-    return "\n".join(stack)
-
-JUMP_OP = {
-    "eq": "JEQ",
-    "gt": "JGT",
-    "lt": "JLT"
-}
-
-def write_comparison(op: str, i: int) -> str:
-    stack = []
-
-    # pop y
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
-    stack.append("D=M")
-
-    # pop x
-    stack.append("@SP")
-    stack.append("M=M-1")
-    stack.append("A=M")
-    stack.append("D=M-D")
-
-    # compare
-    stack.append(f"@IFTRUE{i}")
-    stack.append(f"D;{JUMP_OP[op]}")
-
-    # if not true
-    stack.append("D=0")
-    stack.append(f"@ENDIF{i}")
-    stack.append("0;JMP")
-
-    # if true
-    stack.append(f"(IFTRUE{i})")
-    stack.append("D=-1")
-
-    # end if
-    stack.append(f"(ENDIF{i})")
-
-    # push
-    stack.append("@SP")
-    stack.append("A=M")
-    stack.append("M=D")
-    stack.append("@SP")
-    stack.append("M=M+1\n")
-
-    return "\n".join(stack)
-
-def write_end() -> str:
-    return """\
-(END)
-@END
-0;JMP
-"""
+    def _write_line(self: Self, line: str) -> None:
+        self._stream.write(line + "\n")

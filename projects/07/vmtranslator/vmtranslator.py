@@ -1,74 +1,70 @@
 #!/usr/bin/env python
 
-import os
-import sys
+import argparse
+from pathlib import Path
+from typing import Self
+from parser import Parser
+from codewriter import CodeWriter
 
-import parser
-import codewriter
-from utils import exit_with_error
+class VMTranslator:
+    def __init__(self: Self, path: Path) -> None:
+        self._file_name = path.name
+        self._input_path = path.resolve()
+        self._output_path = self._get_output_path()
+        self._input_stream = open(self._input_path)
+        self._output_stream = open(self._output_path, "w")
+        self._parser = Parser(self._input_stream)
+        self._code = CodeWriter(self._output_stream, self._file_name)
+
+    def translate(self: Self) -> None:
+        self._translate()
+        self._close_streams()
+
+    def _translate(self: Self) -> None:
+        parser = self._parser
+        code = self._code
+
+        while parser.has_more_lines():
+            op = parser.get_op()
+
+            if parser.is_pushpop():
+                segment = parser.get_arg1()
+                index = parser.get_arg2()
+                code.write_pushpop(op, segment, index)
+            elif parser.is_arithmetic():
+                code.write_arithmetic(op)
+
+        code.write_end()
+
+    def _close_streams(self: Self) -> None:
+        self._input_stream.close()
+        self._output_stream.close()
+
+    def _get_output_path(self: Self) -> Path:
+        return self._input_path.with_suffix(".asm")
+
+def validate_path(path_str: str) -> Path:
+    path_suffix = ".vm"
+    path = Path(path_str)
+
+    if not path.exists():
+        raise argparse.ArgumentTypeError(f"file '{path}' does not exist")
+    if not path.is_file():
+        raise argparse.ArgumentTypeError(f"'{path}' is not a file")
+    if path.suffix != path_suffix:
+        raise argparse.ArgumentTypeError(
+            f"file extension must be '{path_suffix}', but got '{path.suffix}'"
+        )
+
+    return path
 
 def main():
-    if len(sys.argv) != 2:
-        exit_with_error("error: Wrong number of arguments")
-
-    file_name = sys.argv[1]
-
-    if not has_vm_extension(file_name):
-        exit_with_error("error: Invalid file extension")
-
-    in_file_path = os.path.abspath(file_name)
-
-    if not os.path.exists(in_file_path):
-        exit_with_error("error: File does not exist")
-
-    out_file_path = vm_to_asm(in_file_path)
-    module_name = get_file_name(out_file_path)
-    label_index = 0 # unique id for conditional labels
-
-    with open(in_file_path) as reader, open(out_file_path, "w") as writer:
-        for line in reader:
-            line = line.strip()
-
-            if parser.is_empty(line) or parser.is_comment(line):
-                continue
-
-            args = parser.get_args(line)
-            op = parser.get_op(args)
-
-            if parser.is_push(op):
-                arg1 = parser.get_arg1(args)
-                arg2 = parser.get_arg2(args)
-                writer.write(codewriter.write_push(arg1, arg2, module_name))
-            elif parser.is_pop(op):
-                arg1 = parser.get_arg1(args)
-                arg2 = parser.get_arg2(args)
-                writer.write(codewriter.write_pop(arg1, arg2, module_name))
-            elif parser.is_binary_arithmetic(op):
-                writer.write(codewriter.write_binary_arithmetic(op))
-            elif parser.is_unary_arithmetic(op):
-                writer.write(codewriter.write_unary_arithmetic(op))
-            elif parser.is_comparison(op):
-                writer.write(codewriter.write_comparison(op, label_index))
-                label_index += 1
-
-        writer.write(codewriter.write_end())
-
-
-
-def get_file_name(file_path: str) -> str:
-    start = file_path.rfind("/") + 1
-    end = file_path.rfind(".")
-    return file_path[start:end]
-
-def remove_file_extension(file_path: str) -> str:
-    i = file_path.rfind(".")
-    return file_path[:i]
-
-def vm_to_asm(file_path: str) -> str:
-    return remove_file_extension(file_path) + ".asm"
-
-def has_vm_extension(file_name: str) -> bool:
-    return file_name.endswith(".vm")
+    parser = argparse.ArgumentParser(
+        description="Translate VM code to Hack assembly."
+    )
+    parser.add_argument("path", type=validate_path, help="Path to .vm file")
+    args = parser.parse_args()
+    VMTranslator(args.path).translate()
 
 if __name__ == "__main__":
     main()
